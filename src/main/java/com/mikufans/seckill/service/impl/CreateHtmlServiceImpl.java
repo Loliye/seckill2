@@ -1,0 +1,87 @@
+package com.mikufans.seckill.service.impl;
+
+import com.mikufans.seckill.common.entity.Result;
+import com.mikufans.seckill.common.entity.Seckill;
+import com.mikufans.seckill.repository.SeckillRepository;
+import com.mikufans.seckill.service.CreateHtmlService;
+import freemarker.template.Configuration;
+import freemarker.template.Template;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+
+@Service
+public class CreateHtmlServiceImpl implements CreateHtmlService
+{
+
+    private static int corePoolSize = Runtime.getRuntime().availableProcessors();
+
+    /**
+     * 多线程生成静态页面
+     */
+    private static ThreadPoolExecutor executor = new ThreadPoolExecutor(corePoolSize, corePoolSize + 1, 10l, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(1000));
+    @Autowired
+    public Configuration configuration;
+
+    @Autowired
+    private SeckillRepository seckillRepository;
+
+    @Value("${spring.freemarker.html.path}")
+    private String path;
+
+    @Override
+    public Result creatAllHtml()
+    {
+        List<Seckill> list = seckillRepository.findAll();
+        final List<Future<String>> resultList = new ArrayList<>();
+        for (Seckill seckill : list)
+        {
+            resultList.add(executor.submit(new CreateHtml(seckill)));
+        }
+
+        for (Future<String> future : resultList)
+        {
+            try
+            {
+                System.out.println(future.get());//打印各个线任务执行的结果，调用future.get() 阻塞主线程，获取异步任务的返回结果
+            } catch (InterruptedException e)
+            {
+                e.printStackTrace();
+            } catch (ExecutionException e)
+            {
+                e.printStackTrace();
+            }
+        }
+        return Result.ok();
+    }
+
+    class CreateHtml implements Callable<String>
+    {
+        Seckill seckill;
+
+        public CreateHtml(Seckill seckill)
+        {
+            this.seckill = seckill;
+        }
+
+        @Override
+        public String call() throws Exception
+        {
+            Template template = configuration.getTemplate("goods.flt");
+            File file = new File(path + seckill.getSeckillId() + ".html");
+            Writer writer = new OutputStreamWriter(new FileOutputStream(file), "UTF-8");
+            template.process(seckill, writer);
+            return "success";
+        }
+    }
+
+}
